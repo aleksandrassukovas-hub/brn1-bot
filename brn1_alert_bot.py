@@ -1,7 +1,7 @@
 import os
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -9,25 +9,30 @@ CHAT_ID = os.environ.get("CHAT_ID")
 
 POLL_INTERVAL = 60 
 DEFAULT_VOLATILITY = 2.0 
+UTC_OFFSET = 3  # Укажите ваш часовой пояс (напр. +3 для Москвы/Киева/Вильнюса)
 
+# --- АКТИВЫ И ПРОФЕССИОНАЛЬНЫЕ ДОЛИ ---
 TICKERS = {
-    "VWCE": "XETR:VWCE",
-    "IGLD": "XETR:IGLD",
-    "JGPI": "XETR:JGPI",
-    "QDVB": "XETR:QDVB",
-    "EIMI": "XETR:EIMI",
-    "SXR8": "XETR:SXR8",
-    "BRNT": "XETR:BRNT",
-    "BTIC": "XETR:BTIC",
-    "SXRV": "XETR:SXRV"
+    "VWCE": "XETR:VWCE",   # Мировой рынок
+    "SXR8": "XETR:SXR8",   # S&P 500
+    "SXRV": "XETR:SXRV",   # Nasdaq 100
+    "IGLD": "XETR:IGLD",   # Золото
+    "JGPI": "XETR:JGPI",   # Дивидендный доход
+    "QDVB": "XETR:QDVB",   # Облигации
+    "EIMI": "XETR:EIMI",   # Развивающиеся рынки
+    "BRNT": "XETR:BRNT",   # Нефть
+    "BTIC": "XETR:BTIC"    # Биткоин
 }
 
-# Глобальные состояния
+target_weights = {
+    "VWCE": 30.0, "SXR8": 20.0, "SXRV": 10.0,
+    "IGLD": 10.0, "JGPI": 10.0, "EIMI": 7.0,
+    "QDVB": 5.0,  "BRNT": 5.0,  "BTIC": 3.0
+}
+
+# --- ГЛОБАЛЬНЫЕ СОСТОЯНИЯ ---
 threshold = DEFAULT_VOLATILITY
 last_notified_change = {ticker: 0 for ticker in TICKERS}
-manual_levels = {ticker: {} for ticker in TICKERS}
-# Хранение целевых долей (в процентах)
-target_weights = {ticker: 0.0 for ticker in TICKERS}
 last_daily_report_day = None
 last_update_id = None
 
@@ -48,36 +53,29 @@ def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        requests.post(url, data=payload)
-    except: pass
+        requests.post(url, data=payload, timeout=10)
+    except Exception as e:
+        print(f"Ошибка отправки в TG: {e}")
 
 def send_daily_summary(data):
-    """Генерация вечернего отчета в 18:00"""
-    report = "🌙 *ВЕЧЕРНИЙ ОТЧЕТ И РЕБАЛАНСИРОВКА*\n\n"
-    total_weight_check = sum(target_weights.values())
+    """Генерация вечернего аналитического отчета"""
+    report = "🌙 *ВЕЧЕРНИЙ ОТЧЕТ И АНАЛИТИКА*\n\n"
     
     for item in data:
         f_ticker = item["s"]
         s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
         # d[0]:price, d[1]:change, d[2]:RSI
-        d = item["d"]
+        price, change, rsi = item["d"][0], item["d"][1], item["d"][2]
         
-        # 1. Анализ перекупленности/перепроданности
-        status = "Держать"
-        if d[2] < 30: status = "🛒 ПОКУПАТЬ (RSI низкий)"
-        elif d[2] > 70: status = "💰 ПРОДАВАТЬ (RSI высокий)"
+        # Логика рекомендаций на основе RSI
+        advice = "Держать"
+        if rsi < 35: advice = "🛒 НЕДООЦЕНЕН (Покупать)"
+        elif rsi > 65: advice = "💰 ПЕРЕГРЕТ (Фиксировать)"
         
-        # 2. Учет долей (если заданы)
-        weight_info = ""
-        if target_weights[s_name] > 0:
-            weight_info = f" | Цель: {target_weights[s_name]}%"
-
-        report += f"*{s_name}*: {d[0]:.2f} ({d[1]:+.2f}%) \n└ {status}{weight_info}\n\n"
+        weight = target_weights.get(s_name, 0)
+        report += f"*{s_name}*: `{price:.2f}` ({change:+.2f}%)\n└ {advice} | Цель: {weight}%\n\n"
     
-    if total_weight_check != 100 and total_weight_check > 0:
-        report += f"⚠️ *Внимание:* Сумма ваших долей = {total_weight_check}%, а не 100%.\n"
-    
-    report += "💡 _Совет: Если актив вырос намного сильнее остальных, его доля в портфеле увеличилась. Пора продать излишки и купить отставшие._"
+    report += "💡 _Совет: Если доля актива отклонилась на 5% от цели, проведите ребалансировку._"
     send_telegram(report)
 
 def handle_commands(data):
@@ -86,40 +84,31 @@ def handle_commands(data):
     params = {"timeout": 1, "offset": last_update_id + 1 if last_update_id else None}
     
     try:
-        r = requests.get(url, params=params)
-        for update in r.json().get("result", []):
+        r = requests.get(url, params=params, timeout=5)
+        updates = r.json().get("result", [])
+        
+        for update in updates:
             last_update_id = update["update_id"]
             if "message" not in update or "text" not in update["message"]: continue
             
-            msg = update["message"]["text"]
-            parts = msg.split()
-            cmd = parts[0].lower()
+            msg_text = update["message"]["text"].strip()
+            parts = msg_text.split()
+            if not parts: continue
+            
+            cmd = parts[0].lower().split('@')[0]
 
             if cmd == "/help":
                 send_telegram(
-                    "📋 *Команды:*\n"
-                    "/status — текущие цены\n"
-                    "/set_weight [тикер] [процент] — задать долю (напр. `/set_weight SXR8 40`)\n"
-                    "/weights — посмотреть ваши цели\n"
-                    "/threshold [число] — порог алертов"
+                    "📋 *Команды ассистента:*\n"
+                    "/status — текущие цены всех активов\n"
+                    "/weights — целевые доли портфеля\n"
+                    "/info [тикер] — детальный RSI и объем\n"
+                    "/threshold [число] — порог уведомлений\n"
+                    "/set_weight [тикер] [число] — изменить долю"
                 )
 
-            elif cmd == "/set_weight" and len(parts) == 3:
-                t, w = parts[1].upper(), parts[2]
-                if t in TICKERS:
-                    target_weights[t] = float(w)
-                    send_telegram(f"✅ Для {t} установлена целевая доля {w}%")
-                else:
-                    send_telegram("❌ Тикер не найден")
-
-            elif cmd == "/weights":
-                msg = "⚖️ *Целевые доли портфеля:*\n\n"
-                for t, w in target_weights.items():
-                    if w > 0: msg += f"• {t}: {w}%\n"
-                send_telegram(msg)
-
             elif cmd == "/status":
-                report = "📊 *Котировки:*\n\n"
+                report = "📊 *Текущие котировки:*\n\n"
                 found = {item["s"]: item["d"] for item in data}
                 for s_name, f_ticker in TICKERS.items():
                     if f_ticker in found:
@@ -127,28 +116,63 @@ def handle_commands(data):
                         report += f"{'🟢' if c >= 0 else '🔴'} `{s_name:5}`: *{p:.2f}* ({c:+.2f}%)\n"
                 send_telegram(report)
 
-    except: pass
+            elif cmd == "/weights":
+                w_report = "⚖️ *Целевое распределение:*\n\n"
+                for t, w in target_weights.items():
+                    if w > 0: w_report += f"• `{t:5}`: {w}%\n"
+                w_report += f"\nСумма: {sum(target_weights.values())}%"
+                send_telegram(w_report)
+
+            elif cmd == "/info" and len(parts) > 1:
+                t = parts[1].upper()
+                if t in TICKERS:
+                    f_t = TICKERS[t]
+                    d = next((i["d"] for i in data if i["s"] == f_t), None)
+                    if d:
+                        msg = (f"🔍 *Анализ {t}:*\n• Цена: `{d[0]:.2f}`\n"
+                               f"• RSI: {d[2]:.1f}\n• Объем: {int(d[3])}")
+                        send_telegram(msg)
+                else: send_telegram("❌ Тикер не найден")
+
+            elif cmd == "/set_weight" and len(parts) == 3:
+                t, w = parts[1].upper(), parts[2]
+                if t in TICKERS:
+                    target_weights[t] = float(w)
+                    send_telegram(f"✅ Доля {t} изменена на {w}%")
+
+            elif cmd == "/threshold" and len(parts) > 1:
+                threshold = float(parts[1])
+                send_telegram(f"⚙️ Порог уведомлений: {threshold}%")
+
+    except Exception as e:
+        print(f"Ошибка команд: {e}")
 
 def check_logic(data):
     global last_notified_change, last_daily_report_day
     
-    # 1. Проверка волатильности
+    # 1. Мониторинг волатильности
     for item in data:
         f_ticker = item["s"]
         s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
+        if not s_name: continue
         price, change_pct = item["d"][0], item["d"][1]
+        
         if abs(change_pct) >= threshold:
             if abs(change_pct - last_notified_change[s_name]) >= 0.5:
-                send_telegram(f"{'🚀' if change_pct > 0 else '⚠️'} *{s_name}* {change_pct:+.2f}%\nЦена: `{price:.2f}`")
+                emoji = "🚀" if change_pct > 0 else "⚠️"
+                send_telegram(f"{emoji} *{s_name}* {change_pct:+.2f}%\nЦена: `{price:.2f}`")
                 last_notified_change[s_name] = change_pct
 
-    # 2. Ежедневный отчет в 18:00
-    now = datetime.now()
-    if now.hour == 18 and now.minute == 0 and last_daily_report_day != now.day:
+    # 2. Таймер отчета (с учетом UTC)
+    now_utc = datetime.utcnow()
+    now_local = now_utc + timedelta(hours=UTC_OFFSET)
+    
+    if now_local.hour == 18 and now_local.minute == 0 and last_daily_report_day != now_local.day:
         send_daily_summary(data)
-        last_daily_report_day = now.day
+        last_daily_report_day = now_local.day
 
-# --- ЦИКЛ ---
+# --- ОСНОВНОЙ ЦИКЛ ---
+print("Бот запущен...")
 while True:
     try:
         m_data = get_market_data()
@@ -156,5 +180,6 @@ while True:
             check_logic(m_data)
             handle_commands(m_data)
         time.sleep(POLL_INTERVAL)
-    except:
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
         time.sleep(10)
