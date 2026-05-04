@@ -1,13 +1,13 @@
 import os
 import requests
 import time
+from datetime import datetime
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
 POLL_INTERVAL = 60 
-# Порог волатильности по умолчанию (в %)
 DEFAULT_VOLATILITY = 2.0 
 
 TICKERS = {
@@ -25,12 +25,14 @@ TICKERS = {
 # Глобальные состояния
 threshold = DEFAULT_VOLATILITY
 last_notified_change = {ticker: 0 for ticker in TICKERS}
-manual_levels = {ticker: {} for ticker in TICKERS} # {ticker: {price: triggered_bool}}
+manual_levels = {ticker: {} for ticker in TICKERS}
+# Хранение целевых долей (в процентах)
+target_weights = {ticker: 0.0 for ticker in TICKERS}
+last_daily_report_day = None
 last_update_id = None
 
 def get_market_data():
     url = "https://scanner.tradingview.com/global/scan"
-    # Добавляем технические индикаторы для команды /info
     payload = {
         "symbols": {"tickers": list(TICKERS.values())},
         "columns": ["close", "change", "RSI", "volume", "average_volume_10d_calc"]
@@ -49,8 +51,37 @@ def send_telegram(text):
         requests.post(url, data=payload)
     except: pass
 
+def send_daily_summary(data):
+    """Генерация вечернего отчета в 18:00"""
+    report = "🌙 *ВЕЧЕРНИЙ ОТЧЕТ И РЕБАЛАНСИРОВКА*\n\n"
+    total_weight_check = sum(target_weights.values())
+    
+    for item in data:
+        f_ticker = item["s"]
+        s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
+        # d[0]:price, d[1]:change, d[2]:RSI
+        d = item["d"]
+        
+        # 1. Анализ перекупленности/перепроданности
+        status = "Держать"
+        if d[2] < 30: status = "🛒 ПОКУПАТЬ (RSI низкий)"
+        elif d[2] > 70: status = "💰 ПРОДАВАТЬ (RSI высокий)"
+        
+        # 2. Учет долей (если заданы)
+        weight_info = ""
+        if target_weights[s_name] > 0:
+            weight_info = f" | Цель: {target_weights[s_name]}%"
+
+        report += f"*{s_name}*: {d[0]:.2f} ({d[1]:+.2f}%) \n└ {status}{weight_info}\n\n"
+    
+    if total_weight_check != 100 and total_weight_check > 0:
+        report += f"⚠️ *Внимание:* Сумма ваших долей = {total_weight_check}%, а не 100%.\n"
+    
+    report += "💡 _Совет: Если актив вырос намного сильнее остальных, его доля в портфеле увеличилась. Пора продать излишки и купить отставшие._"
+    send_telegram(report)
+
 def handle_commands(data):
-    global last_update_id, threshold, manual_levels
+    global last_update_id, threshold, target_weights
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     params = {"timeout": 1, "offset": last_update_id + 1 if last_update_id else None}
     
@@ -65,20 +96,27 @@ def handle_commands(data):
             cmd = parts[0].lower()
 
             if cmd == "/help":
-                help_text = (
-                    "📋 *Доступные команды:*\n\n"
-                    "📈 *Просмотр:*\n"
-                    " /status — цены всех активов\n"
-                    " /info [тикер] — детали и RSI (напр. `/info SXR8`)\n\n"
-                    "🔔 *Уровни (Alerts):*\n"
-                    " /add [тикер] [цена] — поставить уведомление\n"
-                    " /levels — список ваших уровней\n"
-                    " /clear — удалить все уровни\n\n"
-                    "⚙️ *Настройки:*\n"
-                    " /threshold [число] — порог авто-уведомлений (сейчас: {0}%)\n"
-                    " /help — этот список"
-                ).format(threshold)
-                send_telegram(help_text)
+                send_telegram(
+                    "📋 *Команды:*\n"
+                    "/status — текущие цены\n"
+                    "/set_weight [тикер] [процент] — задать долю (напр. `/set_weight SXR8 40`)\n"
+                    "/weights — посмотреть ваши цели\n"
+                    "/threshold [число] — порог алертов"
+                )
+
+            elif cmd == "/set_weight" and len(parts) == 3:
+                t, w = parts[1].upper(), parts[2]
+                if t in TICKERS:
+                    target_weights[t] = float(w)
+                    send_telegram(f"✅ Для {t} установлена целевая доля {w}%")
+                else:
+                    send_telegram("❌ Тикер не найден")
+
+            elif cmd == "/weights":
+                msg = "⚖️ *Целевые доли портфеля:*\n\n"
+                for t, w in target_weights.items():
+                    if w > 0: msg += f"• {t}: {w}%\n"
+                send_telegram(msg)
 
             elif cmd == "/status":
                 report = "📊 *Котировки:*\n\n"
@@ -89,55 +127,28 @@ def handle_commands(data):
                         report += f"{'🟢' if c >= 0 else '🔴'} `{s_name:5}`: *{p:.2f}* ({c:+.2f}%)\n"
                 send_telegram(report)
 
-            elif cmd == "/info" and len(parts) > 1:
-                t = parts[1].upper()
-                if t in TICKERS:
-                    f_ticker = TICKERS[t]
-                    d = next((item["d"] for item in data if item["s"] == f_ticker), None)
-                    if d:
-                        # Индексы: 0-price, 1-change, 2-RSI, 3-vol, 4-avg_vol
-                        msg = (f"🔍 *Анализ {t}:*\n"
-                               f"• Цена: `{d[0]:.2f}`\n"
-                               f"• Изменение: {d[1]:+.2f}%\n"
-                               f"• RSI (14): {d[2]:.1f} {'⚠️' if d[2]>70 or d[2]<30 else ''}\n"
-                               f"• Объем: {int(d[3])} (ср. {int(d[4])})")
-                        send_telegram(msg)
-                else: send_telegram("❌ Тикер не найден")
-
-            elif cmd == "/add" and len(parts) == 3:
-                t, p = parts[1].upper(), parts[2]
-                if t in TICKERS:
-                    manual_levels[t][float(p)] = False
-                    send_telegram(f"✅ Оповещение для {t} на `{p}` установлено")
-
-            elif cmd == "/threshold" and len(parts) > 1:
-                threshold = float(parts[1])
-                send_telegram(f"⚙️ Порог волатильности: {threshold}%")
-
-    except Exception as e: print(f"Cmd Error: {e}")
+    except: pass
 
 def check_logic(data):
-    global last_notified_change
+    global last_notified_change, last_daily_report_day
+    
+    # 1. Проверка волатильности
     for item in data:
         f_ticker = item["s"]
-        short_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
-        if not short_name: continue
-        
+        s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
         price, change_pct = item["d"][0], item["d"][1]
-
-        # 1. Авто-волатильность
         if abs(change_pct) >= threshold:
-            if abs(change_pct - last_notified_change[short_name]) >= 0.5:
-                send_telegram(f"{'🚀' if change_pct > 0 else '⚠️'} *{short_name}* {change_pct:+.2f}%\nЦена: `{price:.2f}`")
-                last_notified_change[short_name] = change_pct
+            if abs(change_pct - last_notified_change[s_name]) >= 0.5:
+                send_telegram(f"{'🚀' if change_pct > 0 else '⚠️'} *{s_name}* {change_pct:+.2f}%\nЦена: `{price:.2f}`")
+                last_notified_change[s_name] = change_pct
 
-        # 2. Ручные уровни
-        for lvl, triggered in manual_levels[short_name].items():
-            if not triggered and abs(price - lvl) <= (lvl * 0.0005):
-                manual_levels[short_name][lvl] = True
-                send_telegram(f"🎯 *{short_name}* достиг уровня `{lvl}`!")
+    # 2. Ежедневный отчет в 18:00
+    now = datetime.now()
+    if now.hour == 18 and now.minute == 0 and last_daily_report_day != now.day:
+        send_daily_summary(data)
+        last_daily_report_day = now.day
 
-# --- MAIN ---
+# --- ЦИКЛ ---
 while True:
     try:
         m_data = get_market_data()
@@ -145,5 +156,5 @@ while True:
             check_logic(m_data)
             handle_commands(m_data)
         time.sleep(POLL_INTERVAL)
-    except Exception as e:
+    except:
         time.sleep(10)
