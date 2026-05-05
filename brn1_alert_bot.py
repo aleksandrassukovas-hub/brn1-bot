@@ -7,11 +7,11 @@ from datetime import datetime, timedelta
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-POLL_INTERVAL = 30 # Уменьшил интервал для более быстрой реакции
+POLL_INTERVAL = 30 
 DEFAULT_VOLATILITY = 2.0 
-UTC_OFFSET = 3  # Ваш часовой пояс (Вильнюс/Киев/МСК)
+UTC_OFFSET = 3  
 
-# --- АКТИВЫ И ПРОФЕССИОНАЛЬНЫЕ ДОЛИ ---
+# --- АКТИВЫ И ДОЛИ ---
 TICKERS = {
     "VWCE": "XETR:VWCE", "SXR8": "XETR:SXR8", "SXRV": "XETR:SXRV",
     "IGLD": "XETR:IGLD", "JGPI": "XETR:JGPI", "QDVB": "XETR:QDVB",
@@ -24,11 +24,11 @@ target_weights = {
     "QDVB": 5.0,  "BRNT": 5.0,  "BTIC": 3.0
 }
 
-# --- ГЛОБАЛЬНЫЕ СОСТОЯНИЯ ---
+# --- СОСТОЯНИЯ ---
 threshold = DEFAULT_VOLATILITY
 last_notified_change = {ticker: 0 for ticker in TICKERS}
 last_daily_report_day = None
-last_update_id = -1 # Начинаем с -1 для сброса очереди
+last_update_id = -1 
 
 def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -50,14 +50,37 @@ def get_market_data():
         r = requests.post(url, json=payload, timeout=10)
         return r.json().get("data", [])
     except Exception as e:
-        print(f"Ошибка API TradingView: {e}")
+        print(f"Ошибка API: {e}")
         return []
 
+def generate_analytical_report(data):
+    """Генерация текста с аналитикой и рекомендациями"""
+    report = "🌙 *АНАЛИТИЧЕСКАЯ СВОДКА*\n\n"
+    for item in data:
+        f_ticker = item["s"]
+        s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
+        if not s_name: continue
+        
+        d = item["d"]
+        price, change, rsi = d[0], d[1], d[2]
+        
+        # Рекомендация по RSI
+        if rsi is not None:
+            if rsi < 35: advice = "🟢 *ПОКУПАТЬ* (RSI low)"
+            elif rsi > 65: advice = "🔴 *ПРОДАВАТЬ* (RSI high)"
+            else: advice = "⚪️ ДЕРЖАТЬ"
+        else:
+            advice = "⚪️ Нет данных RSI"
+            
+        report += f"*{s_name}*: `{price:.2f}` ({change:+.2f}%)\n└ {advice} | Цель: {target_weights[s_name]}%\n\n"
+    
+    report += "💡 _Совет: Ребалансируйте, если отклонение > 5%._"
+    return report
+
 def handle_commands(data):
-    global last_update_id, threshold, target_weights
+    global last_update_id, threshold
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     
-    # Если это первый запуск, очищаем старые сообщения
     params = {"timeout": 1}
     if last_update_id != -1:
         params["offset"] = last_update_id + 1
@@ -68,43 +91,39 @@ def handle_commands(data):
         
         for update in updates:
             last_update_id = update["update_id"]
-            if "message" not in update or "text" not in update["message"]:
-                continue
-            
-            text = update["message"]["text"].strip()
-            # Проверка, что пишет именно владелец (CHAT_ID)
-            if str(update["message"]["chat"]["id"]) != str(CHAT_ID):
-                continue
+            if "message" not in update or "text" not in update["message"]: continue
+            if str(update["message"]["chat"]["id"]) != str(CHAT_ID): continue
 
+            text = update["message"]["text"].strip()
             parts = text.split()
             cmd = parts[0].lower().split('@')[0]
 
             if cmd == "/help":
-                send_telegram(
-                    "✅ *Бот активен!*\n\n"
-                    "📈 /status — цены и изменения\n"
-                    "⚖️ /weights — распределение портфеля\n"
-                    "⚙️ /threshold [число] — порог алертов\n"
-                    "🔍 /info [тикер] — RSI и объемы"
-                )
+                send_telegram("📈 /status — цены\n⚖️ /weights — доли\n🌙 /report — аналитика")
             
             elif cmd == "/status":
-                report = "📊 *Текущие котировки:*\n\n"
-                found = {item["s"]: item["d"] for item in data}
-                for s_name, f_ticker in TICKERS.items():
-                    if f_ticker in found:
-                        p, c = found[f_ticker][0], found[f_ticker][1]
-                        report += f"{'🟢' if c >= 0 else '🔴'} `{s_name:5}`: *{p:.2f}* ({c:+.2f}%)\n"
+                report = "📊 *Котировки:*\n\n"
+                found = {i["s"]: i["d"] for i in data}
+                for sn, ft in TICKERS.items():
+                    if ft in found:
+                        report += f"{sn:5}: `{found[ft][0]:.2f}` ({found[ft][1]:+.2f}%)\n"
                 send_telegram(report)
 
             elif cmd == "/weights":
-                w_report = "⚖️ *Целевые доли:*\n\n"
+                msg = "⚖️ *Целевые доли:*\n\n"
                 for t, w in target_weights.items():
-                    w_report += f"• `{t:5}`: {w}%\n"
-                send_telegram(w_report)
+                    msg += f"• `{t:5}`: {w}%\n"
+                send_telegram(msg)
+            
+            elif cmd == "/report":
+                send_telegram(generate_analytical_report(data))
+
+            elif cmd == "/threshold" and len(parts) > 1:
+                threshold = float(parts[1])
+                send_telegram(f"✅ Порог изменен на {threshold}%")
 
     except Exception as e:
-        print(f"Ошибка в обработчике команд: {e}")
+        print(f"Ошибка команд: {e}")
 
 def check_logic(data):
     global last_notified_change, last_daily_report_day
@@ -122,25 +141,19 @@ def check_logic(data):
                 send_telegram(f"{emoji} *{s_name}* {change_pct:+.2f}%\nЦена: `{price:.2f}`")
                 last_notified_change[s_name] = change_pct
 
-    # 2. Вечерний отчет
+    # 2. Вечерний отчет (18:00)
     now = datetime.utcnow() + timedelta(hours=UTC_OFFSET)
     if now.hour == 18 and now.minute == 0 and last_daily_report_day != now.day:
-        # Упрощенный вызов отчета
-        report = "🌙 *Вечерний статус-чек*\n\n"
-        for item in data:
-            f_ticker = item["s"]
-            s_name = next((k for k, v in TICKERS.items() if v == f_ticker), None)
-            report += f"*{s_name}*: {item['d'][0]:.2f} ({item['d'][1]:+.2f}%)\n"
-        send_telegram(report)
+        send_telegram(generate_analytical_report(data))
         last_daily_report_day = now.day
 
 # --- ЗАПУСК ---
 if __name__ == "__main__":
     print("🚀 Запуск ассистента...")
-    # Делаем пробный запуск, чтобы бот сразу считал текущий ID обновлений
-    get_market_data()
-    # Первое сообщение при запуске для проверки связи
-    send_telegram("🤖 Бот запущен и готов к работе. Напишите /help")
+    # Очистка старых сообщений перед стартом
+    initial_r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates", params={"offset": -1})
+    
+    send_telegram("🤖 Бот запущен. Напишите /report для проверки.")
     
     while True:
         try:
