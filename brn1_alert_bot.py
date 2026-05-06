@@ -20,8 +20,8 @@ TICKERS = {
     "IGLD": "XETR:IGLD", 
     "JGPI": "XETR:JGPI", 
     "QDVB": "XETR:QDVB",
-    "EIMI": "XETR:EIMI", 
-    "BRNT": "XETR:EBRP", # Если пропадет, попробуй XETR:EBRP
+    "EIMI": "MIL:EIMI", 
+    "BRNT": "LSE:BRNT", # Если пропадет, попробуй XETR:EBRP
     "BTIC": "XETR:BTIC"
 }
 
