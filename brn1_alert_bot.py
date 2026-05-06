@@ -20,8 +20,8 @@ TICKERS = {
     "IGLD": "XETR:IGLD", 
     "JGPI": "XETR:JGPI", 
     "QDVB": "XETR:QDVB",
-    "EIMI": "MIL:EIMI", 
-    "BRNT": "LSE:BRNT", # Если пропадет, попробуй XETR:EBRP
+    "EIMI": "XETR:IBCS", # iShares MSCI EM IMI (Xetra)
+    "BRNT": "XETR:OD7Z", # WisdomTree Brent Crude Oil (Xetra)
     "BTIC": "XETR:BTIC"
 }
 
