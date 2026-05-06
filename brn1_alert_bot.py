@@ -14,15 +14,15 @@ UTC_OFFSET = 3
 # --- АКТИВЫ И ДОЛИ ---
 # Проверь эти тикеры в TradingView, если какой-то пропадет снова
 TICKERS = {
-  "VWCE": "XETR:VWCE", 
-    "SXR8": "XETR:SXR8", 
-    "SXRV": "XETR:SXRV",
-    "IGLD": "XETR:IGLD", 
-    "JGPI": "XETR:JGPI", 
-    "QDVB": "XETR:QDVB",
-    "EIMI": "XETR:IBCS", # iShares MSCI EM IMI (даст 55.24)
-    "BRNT": "XETR:OD7Z", # WisdomTree Brent (даст те самые 71.12)
-    "BTIC": "XETR:BTIC"  # Bitcoin ETP (подтянет 79.22)
+  "VWCE": "XETR:VWCE", # EUR (Xetra)
+    "SXR8": "SIX:SXR8",  # CHF (Швейцарская биржа)
+    "SXRV": "XETR:SXRV", # EUR (Xetra)
+    "IGLD": "XETR:IGLD", # EUR (Xetra)
+    "JGPI": "XETR:JGPI", # EUR (Xetra)
+    "QDVB": "XETR:QDVB", # EUR (Xetra)
+    "EIMI": "LSE:EIMI",  # USD (Лондонская биржа)
+    "BRNT": "MIL:BRNT",  # EUR (Миланская биржа)
+    "BTIC": "LSE:BTIC"   # USD (Лондонская биржа)
 }
 
 target_weights = {
