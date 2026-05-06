@@ -20,7 +20,7 @@ TICKERS = {
     "JGPI": "XETR:JGPI", 
     "QDVB": "XETR:QDVB",
     "EIMI": "LSE:EIMI",  # Лондон (USD)
-    "BRNT": "MIL:BRNT",  # Милан (EUR)
+    "BRNT": "ICEEUR:BRN1!"
     "BTIC": "XETR:BTIC", # Xetra (EUR)
     "XEON": "XETR:XEON"  # Добавил новый тикер из списка
 }
