@@ -11,24 +11,25 @@ POLL_INTERVAL = 30
 DEFAULT_VOLATILITY = 2.0 
 UTC_OFFSET = 3  
 
-# --- АКТИВЫ И ДОЛИ ---
-# Проверь эти тикеры в TradingView, если какой-то пропадет снова
+# --- АКТИВЫ И ДОЛИ (СТРОГО ПО ДАННЫМ IBKR) ---
 TICKERS = {
-  "VWCE": "XETR:VWCE", # EUR (Xetra)
-    "SXR8": "SIX:SXR8",  # CHF (Швейцарская биржа)
-    "SXRV": "XETR:SXRV", # EUR (Xetra)
-    "IGLD": "XETR:IGLD", # EUR (Xetra)
-    "JGPI": "XETR:JGPI", # EUR (Xetra)
-    "QDVB": "XETR:QDVB", # EUR (Xetra)
-    "EIMI": "LSE:EIMI",  # USD (Лондонская биржа)
-    "BRNT": "MIL:BRNT",  # EUR (Миланская биржа)
-    "BTIC": "LSE:BTIC"   # USD (Лондонская биржа)
+    "VWCE": "XETR:VWCE", 
+    "SXR8": "XETR:SXR8", 
+    "SXRV": "XETR:SXRV",
+    "IGLD": "XETR:IGLD", 
+    "JGPI": "XETR:JGPI", 
+    "QDVB": "XETR:QDVB",
+    "EIMI": "LSE:EIMI",  # Лондон (USD)
+    "BRNT": "MIL:BRNT",  # Милан (EUR)
+    "BTIC": "XETR:BTIC", # Xetra (EUR)
+    "XEON": "XETR:XEON"  # Добавил новый тикер из списка
 }
 
 target_weights = {
     "VWCE": 30.0, "SXR8": 20.0, "SXRV": 10.0,
     "IGLD": 10.0, "JGPI": 10.0, "EIMI": 7.0,
-    "QDVB": 5.0,  "BRNT": 5.0,  "BTIC": 3.0
+    "QDVB": 5.0,  "BRNT": 5.0,  "BTIC": 3.0,
+    "XEON": 0.0   # Укажите желаемый %, если нужно
 }
 
 # --- СОСТОЯНИЯ ---
