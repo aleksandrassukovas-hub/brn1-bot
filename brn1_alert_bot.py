@@ -19,10 +19,10 @@ TICKERS = {
     "IGLD": "XETR:IGLD", 
     "JGPI": "XETR:JGPI", 
     "QDVB": "XETR:QDVB",
-    "EIMI": "LSE:EIMI",  # Лондон (USD)
-    "BRNT": "ICEEUR:BRN1!"
-    "BTIC": "XETR:BTIC", # Xetra (EUR)
-    "XEON": "XETR:XEON"  # Добавил новый тикер из списка
+    "EIMI": "LSE:EIMI",
+    "BRNT": "ICEEUR:BRN1!", # Тот самый непрерывный контракт с твоего скрина
+    "BTIC": "XETR:BTIC",
+    "XEON": "XETR:XEON"
 }
 
 target_weights = {
