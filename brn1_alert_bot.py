@@ -1,18 +1,16 @@
 import os
 import requests
 import time
-import re
-from datetime import datetime, timedelta
 
 # --- КОНФИГУРАЦИЯ ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
+POLL_INTERVAL = 60 
 
-POLL_INTERVAL = 30 
-UTC_OFFSET = 3  
-CASH_BALANCE = 100000  # Твой свободный кэш
+# Твой кэш и целевые доли
+CASH_BALANCE = 100000 
 
-# --- ТИКЕРЫ (СТРОГО ПО ТВОИМ СКРИНШОТАМ IBKR) ---
+# Тикеры настроены строго под твои площадки в IBKR
 TICKERS = {
     "VWCE": "XETR:VWCE", 
     "SXR8": "XETR:SXR8", 
@@ -20,8 +18,8 @@ TICKERS = {
     "IGLD": "XETR:IGLD", 
     "JGPI": "XETR:JGPI", 
     "QDVB": "XETR:QDVB",
-    "EIMI": "LSE:EIMI",   # USD
-    "BRNT": "ICEEUR:BRN1!", # Фьючерс из твоего скрина
+    "EIMI": "LSE:EIMI",   
+    "BRNT": "ICEEUR:BRN1!", # Фьючерс Brent
     "BTIC": "XETR:BTIC",
     "XEON": "XETR:XEON"
 }
@@ -32,7 +30,7 @@ target_weights = {
     "QDVB": 5.0,  "BRNT": 5.0,  "BTIC": 3.0
 }
 
-# --- ТЕКУЩИЕ ПОЗИЦИИ (ИЗ ТВОЕГО СКРИНА IBKR) ---
+# Текущие позиции из твоего скриншота IBKR
 CURRENT_POSITIONS = {
     "VWCE": 4.0, "SXR8": 1.0, "SXRV": 0.2, "IGLD": 3.0, "JGPI": 1000.0,
     "QDVB": 70.0, "EIMI": 5.0, "BRNT": 20.0, "BTIC": 8.0, "XEON": 70.0
@@ -44,9 +42,8 @@ def send_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}
     try:
-        r = requests.post(url, data=payload, timeout=10)
-        return r.status_code == 200
-    except: return False
+        requests.post(url, data=payload, timeout=10)
+    except: pass
 
 def get_market_data():
     url = "https://scanner.tradingview.com/global/scan"
@@ -60,10 +57,11 @@ def get_market_data():
     except: return []
 
 def generate_analytical_report(data):
-    """Расчет ребалансировки с учетом кэша и текущих позиций"""
     prices = {item["s"]: item["d"][0] for item in data}
+    changes = {item["s"]: item["d"][1] for item in data}
+    rsis = {item["s"]: item["d"][2] for item in data}
     
-    # 1. Считаем общую стоимость портфеля
+    # Расчет общей стоимости портфеля
     total_assets_value = 0
     for name, f_ticker in TICKERS.items():
         price = prices.get(f_ticker, 0)
@@ -71,85 +69,77 @@ def generate_analytical_report(data):
     
     total_portfolio = total_assets_value + CASH_BALANCE
     
-    report = "🌙 *ОТЧЕТ И РЕБАЛАНСИРОВКА*\n"
-    report += f"💰 Общий капитал: *{total_portfolio:,.2f}*\n"
-    report += f"💵 Доступный кэш: *{CASH_BALANCE:,.2f}*\n\n"
+    report = "🌙 *АНАЛИТИЧЕСКАЯ СВОДКА*\n"
+    report += f"💰 Общий капитал: `{total_portfolio:,.2f}`\n"
+    report += f"💵 Доступный кэш: `{CASH_BALANCE:,.2f}`\n"
+    report += "---" * 4 + "\n\n"
 
     for name, f_ticker in TICKERS.items():
-        if f_ticker not in prices: continue
+        if f_ticker not in prices or name not in target_weights: continue
         
         price = prices[f_ticker]
-        cur_qty = CURRENT_POSITIONS.get(name, 0)
-        cur_val = cur_qty * price
-        cur_pct = (cur_val / total_portfolio) * 100
+        change = changes[f_ticker]
+        rsi = rsis[f_ticker]
         
-        target_pct = target_weights.get(name, 0)
+        # Сигнал по RSI
+        if rsi > 70: signal = "🔴 ПРОДАВАТЬ"
+        elif rsi < 30: signal = "🟢 ПОКУПАТЬ"
+        else: signal = "⚪️ ДЕРЖАТЬ"
+
+        # Ребалансировка
+        cur_val = price * CURRENT_POSITIONS.get(name, 0)
+        cur_pct = (cur_val / total_portfolio) * 100
+        target_pct = target_weights[name]
         target_val = total_portfolio * (target_pct / 100)
         diff = target_val - cur_val
         
-        # Формируем совет
+        report += f"*{name}*: `{price:.2f} ({change:+.2f}%)`\n"
+        report += f"└ {signal} (RSI: {rsi:.1f})\n"
+        report += f"└ Доля: {cur_pct:.1f}% -> Цель: {target_pct}%\n"
+        
         if diff > price:
-            advice = f"🛒 *КУПИТЬ:* `{diff/price:.1f}` шт. (~{diff:,.0f})"
+            report += f"└ 🛒 *КУПИТЬ:* `{diff/price:.1f}` шт. (~{diff:,.0f})\n\n"
         elif diff < -price:
-            advice = f"⚖️ *ПРОДАТЬ:* `{abs(diff)/price:.1f}` шт. (~{abs(diff):,.0f})"
+            report += f"└ ⚖️ *ПРОДАТЬ:* `{abs(diff)/price:.1f}` шт. (~{abs(diff):,.0f})\n\n"
         else:
-            advice = "✅ В норме"
-            
-        report += f"*{name}*: {cur_pct:.1f}% -> цель {target_pct}%\n└ {advice}\n\n"
+            report += "└ ✅ В норме\n\n"
     
     return report
 
-def handle_commands(data):
-    global last_update_id, CASH_BALANCE, CURRENT_POSITIONS
+def handle_commands():
+    global last_update_id, CASH_BALANCE
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    params = {"timeout": 1, "offset": last_update_id + 1}
-    
+    params = {"offset": last_update_id + 1, "timeout": 1}
     try:
         r = requests.get(url, params=params, timeout=10)
         updates = r.json().get("result", [])
         for update in updates:
             last_update_id = update["update_id"]
             if "message" not in update or "text" not in update["message"]: continue
-            msg = update["message"]
-            text = msg["text"].strip()
-
-            if text == "/status":
-                send_telegram(f"📊 Текущий кэш: {CASH_BALANCE}\nВсего позиций: {len(CURRENT_POSITIONS)}")
+            text = update["message"]["text"]
             
-            elif text == "/report":
+            if text == "/report":
+                data = get_market_data()
                 send_telegram(generate_analytical_report(data))
-
-            # Команда обновления кэша: /cash 105000
             elif text.startswith("/cash"):
                 try:
                     CASH_BALANCE = float(text.split()[1])
                     send_telegram(f"✅ Кэш обновлен: {CASH_BALANCE:,.2f}")
-                except: send_telegram("❌ Формат: /cash 100000")
-
-            # Команда обновления позиций: /pos VWCE 10
+                except: pass
             elif text.startswith("/pos"):
                 try:
                     parts = text.split()
                     t, q = parts[1].upper(), float(parts[2])
-                    if t in TICKERS or t == "XEON":
-                        CURRENT_POSITIONS[t] = q
-                        send_telegram(f"✅ {t} обновлен: {q} шт.")
-                except: send_telegram("❌ Формат: /pos VWCE 10")
-
-    except Exception as e:
-        print(f"Ошибка команд: {e}")
+                    CURRENT_POSITIONS[t] = q
+                    send_telegram(f"✅ Позиция {t} обновлена: {q}")
+                except: pass
+    except: pass
 
 if __name__ == "__main__":
-    print("🚀 Бот запущен (Версия 4.0 с кэшем)")
+    # Сброс старых обновлений
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates", params={"offset": -1})
-    send_telegram("🤖 *Система управления капиталом активна*\n\n/report — план покупок\n/cash [число] — обновить кэш\n/pos [ТИКЕР] [кол-во] — обновить позицию")
+    send_telegram("🤖 *Бот-аналитик запущен*\nИспользуй /report для отчета")
     
     while True:
-        try:
-            m_data = get_market_data()
-            if m_data:
-                handle_commands(m_data)
-            time.sleep(POLL_INTERVAL)
-        except Exception as e:
-            print(f"Loop error: {e}")
-            time.sleep(10)
+        handle_commands()
+        time.sleep(2)
