@@ -1,12 +1,3 @@
-Diff
-Logs
-
-portfolio_bot.py
-portfolio_bot.py
-New
-+296
--0
-
 import os
 import time
 import datetime
