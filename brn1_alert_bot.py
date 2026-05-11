@@ -1,8 +1,15 @@
+Diff
+Logs
+
+portfolio_bot.py
+portfolio_bot.py
+New
++296
+-0
+
 import os
 import time
 import datetime
-from zoneinfo import ZoneInfo
-
 import requests
 
 # --- CONFIG ---
@@ -112,9 +119,10 @@ def generate_analytical_report(data: list[dict]) -> str:
     )
     total_portfolio = total_assets + CASH_BALANCE
 
-    report = "🌙 *ОТЧЕТ ПО ПОРТФЕЛЮ*\n"
-    report += f"📊 VIX: `{vix_val:.2f}` ({vix_state})\n"
-    report += f"💰 Капитал: `{total_portfolio:,.2f}`\n"
+    report = "🌙 *АНАЛИТИЧЕСКАЯ СВОДКА*\n"
+    report += f"💰 Общий капитал: `{total_portfolio:,.2f}`\n"
+    report += f"💵 Доступный кэш: `{CASH_BALANCE:,.2f}`\n"
+    report += f"📊 Индекс VIX: `{vix_val:.2f}` ({vix_state})\n"
     report += "------------\n\n"
 
     for name, f_ticker in TICKERS.items():
@@ -132,12 +140,17 @@ def generate_analytical_report(data: list[dict]) -> str:
         target_pct = TARGET_WEIGHTS.get(name, 0.0)
         diff = (total_portfolio * (target_pct / 100)) - current_value
 
-        report += f"*{name}*: `{price:.2f}` ({change:+.2f}%, {signal})\n"
+        report += f"*{name}*: `{price:.2f}` ({change:+.2f}%)\n"
+        report += f"└ {signal} (RSI: {safe_rsi:.1f})\n"
+
+        current_weight = (current_value / total_portfolio * 100) if total_portfolio > 0 else 0.0
+        report += f"└ Доля: `{current_weight:.1f}%` -> Цель: `{target_pct:.1f}%`\n"
+
         if price > 0:
             if diff > price:
-                report += f"└ 🛒 Купить: `{diff / price:.1f}` шт.\n"
+                report += f"└ 🛒 КУПИТЬ: `{diff / price:.1f}` шт.\n"
             elif diff < -price:
-                report += f"└ ⚖️ Продать: `{abs(diff) / price:.1f}` шт.\n"
+                report += f"└ ⚖️ ПРОДАТЬ: `{abs(diff) / price:.1f}` шт.\n"
         report += "\n"
 
     return report
@@ -178,6 +191,50 @@ def check_alerts() -> None:
 
     send_telegram(message)
 
+
+
+
+def debug_symbol_report(symbol: str) -> str:
+    data = get_market_data()
+    if not data:
+        return "❌ Ошибка: данные не получены."
+
+    prices, changes, rsis = extract_maps(data)
+    symbol = symbol.upper()
+
+    if symbol == "VIX":
+        tv_symbol = VIX_TICKER
+        human_name = "VIX"
+    else:
+        tv_symbol = TICKERS.get(symbol)
+        human_name = symbol
+
+    if not tv_symbol:
+        available = ", ".join(sorted(TICKERS.keys()))
+        return f"⚠️ Неизвестный тикер `{symbol}`. Доступно: {available}, VIX"
+
+    if tv_symbol not in prices:
+        return f"⚠️ По тикеру `{human_name}` нет рыночных данных прямо сейчас."
+
+    price = prices.get(tv_symbol, 0.0)
+    change = changes.get(tv_symbol, 0.0)
+    rsi = rsis.get(tv_symbol)
+    rsi_txt = "n/a" if rsi is None else f"{rsi:.2f}"
+
+    lines = [
+        f"🐞 *DEBUG {human_name}*",
+        f"Символ TV: `{tv_symbol}`",
+        f"Цена: `{price:.4f}`",
+        f"Изм. за день: `{change:+.2f}%`",
+        f"RSI: `{rsi_txt}`",
+    ]
+
+    if human_name != "VIX":
+        qty = CURRENT_POSITIONS.get(human_name, 0.0)
+        position_value = qty * price
+        lines.append(f"Позиция: `{qty}` шт. (~`{position_value:,.2f}`)")
+
+    return "\n".join(lines)
 
 def handle_commands() -> None:
     global last_update_id, CASH_BALANCE
@@ -221,6 +278,13 @@ def handle_commands() -> None:
                     send_telegram(f"✅ {symbol} обновлена: {quantity}")
                 except ValueError:
                     send_telegram("⚠️ Ошибка: количество должно быть числом.")
+
+            elif text.startswith("/debug"):
+                parts = text.split()
+                if len(parts) != 2:
+                    send_telegram("⚠️ Формат: /debug <TICKER|VIX>")
+                    continue
+                send_telegram(debug_symbol_report(parts[1]))
 
     except Exception as exc:
         print(f"Ошибка handle_commands: {exc}")
