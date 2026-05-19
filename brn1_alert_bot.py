@@ -22,7 +22,7 @@ TICKERS = {
     "BRNT": "ICEEUR:BRN1!",
     "BTIC": "XETR:BTIC",
     "XEON": "XETR:XEON",
-    "XDEW": "IBIS2:XDEW",
+    "XDEW": "XETR:XDEW",
 }
 
 REV_TICKERS = {v: k for k, v in TICKERS.items()}
@@ -121,7 +121,15 @@ def generate_analytical_report(data: List[dict]) -> str:
     report += "------------\n\n"
 
     for name, f_ticker in TICKERS.items():
+        target_pct = TARGET_WEIGHTS.get(name, 0.0)
+
         if f_ticker not in prices:
+            current_value = 0.0
+            current_weight = 0.0
+            report += f"*{name}*: `n/a` (нет данных)\n"
+            report += "└ ⚪️ ДЕРЖАТЬ (RSI: n/a)\n"
+            report += f"└ Доля: `{current_weight:.1f}%` -> Цель: `{target_pct:.1f}%`\n"
+            report += "└ ℹ️ Инструмент добавлен в наблюдение, но котировка сейчас не пришла из TradingView.\n\n"
             continue
 
         price = prices[f_ticker]
@@ -132,7 +140,6 @@ def generate_analytical_report(data: List[dict]) -> str:
         signal = "🔴 ПРОДАВАТЬ" if safe_rsi > 70 else "🟢 ПОКУПАТЬ" if safe_rsi < 30 else "⚪️ ДЕРЖАТЬ"
 
         current_value = price * CURRENT_POSITIONS.get(name, 0.0)
-        target_pct = TARGET_WEIGHTS.get(name, 0.0)
         diff = (total_portfolio * (target_pct / 100)) - current_value
 
         report += f"*{name}*: `{price:.2f}` ({change:+.2f}%)\n"
