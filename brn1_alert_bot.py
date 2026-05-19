@@ -2,6 +2,7 @@ import os
 import time
 import datetime
 import requests
+from typing import Dict, List, Optional, Tuple
 
 # --- CONFIG ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -21,6 +22,7 @@ TICKERS = {
     "BRNT": "ICEEUR:BRN1!",
     "BTIC": "XETR:BTIC",
     "XEON": "XETR:XEON",
+    "XDEW": "IBIS2:XDEW",
 }
 
 REV_TICKERS = {v: k for k, v in TICKERS.items()}
@@ -28,7 +30,7 @@ VIX_TICKER = "TVC:VIX"
 
 TARGET_WEIGHTS = {
     "VWCE": 30.0,
-    "SXR8": 20.0,
+    "SXR8": 10.0,
     "SXRV": 10.0,
     "IGLD": 10.0,
     "JGPI": 10.0,
@@ -36,6 +38,7 @@ TARGET_WEIGHTS = {
     "QDVB": 5.0,
     "BRNT": 5.0,
     "BTIC": 3.0,
+    "XDEW": 10.0,
 }
 
 CURRENT_POSITIONS = {
@@ -49,6 +52,7 @@ CURRENT_POSITIONS = {
     "BRNT": 20.0,
     "BTIC": 8.0,
     "XEON": 70.0,
+    "XDEW": 1.0,
 }
 
 last_update_id = -1
@@ -65,7 +69,7 @@ def send_telegram(text: str) -> None:
         print(f"Ошибка отправки: {exc}")
 
 
-def get_market_data() -> list[dict]:
+def get_market_data() -> List[dict]:
     all_symbols = list(TICKERS.values()) + [VIX_TICKER]
     url = "https://scanner.tradingview.com/global/scan"
     payload = {"symbols": {"tickers": all_symbols}, "columns": ["close", "change", "RSI"]}
@@ -78,10 +82,10 @@ def get_market_data() -> list[dict]:
         return []
 
 
-def extract_maps(data: list[dict]) -> tuple[dict, dict, dict]:
-    prices: dict[str, float] = {}
-    changes: dict[str, float] = {}
-    rsis: dict[str, float | None] = {}
+def extract_maps(data: List[dict]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Optional[float]]]:
+    prices: Dict[str, float] = {}
+    changes: Dict[str, float] = {}
+    rsis: Dict[str, Optional[float]] = {}
 
     for item in data:
         symbol = item.get("s")
@@ -95,7 +99,7 @@ def extract_maps(data: list[dict]) -> tuple[dict, dict, dict]:
     return prices, changes, rsis
 
 
-def generate_analytical_report(data: list[dict]) -> str:
+def generate_analytical_report(data: List[dict]) -> str:
     if not data:
         return "❌ Ошибка: данные не получены."
 
