@@ -42,14 +42,14 @@ TARGET_WEIGHTS = {
 }
 
 CURRENT_POSITIONS = {
-    "VWCE": 4.0,
+    "VWCE": 2.0,
     "SXR8": 1.0,
-    "SXRV": 0.2,
+    "SXRV": 0.1,
     "IGLD": 3.0,
     "JGPI": 1000.0,
     "QDVB": 70.0,
     "EIMI": 5.0,
-    "BRNT": 20.0,
+    "BRNT": 1.0,
     "BTIC": 8.0,
     "XEON": 70.0,
     "XDEW": 1.0,
