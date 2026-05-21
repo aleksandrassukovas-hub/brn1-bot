@@ -3,16 +3,16 @@ import time
 import json
 import datetime
 import requests
-from typing import Dict, List, Optional, Tuple
- 
+from typing import Dict, List, Tuple
+
 # ─────────────────────────────────────────
 #  CONFIG
 # ─────────────────────────────────────────
 BOT_TOKEN     = os.environ.get("BOT_TOKEN", "")
 CHAT_ID       = os.environ.get("CHAT_ID", "")
-FINNHUB_TOKEN = os.environ.get("FINNHUB_TOKEN", "")  # бесплатно: finnhub.io
+FINNHUB_TOKEN = os.environ.get("FINNHUB_TOKEN", "")
 POLL_INTERVAL = 5
- 
+
 DEFAULT_CASH = 100_000.0
 DEFAULT_POSITIONS = {
     "VWCE": 4.0,    "SXR8": 1.0,   "SXRV": 0.2,
@@ -20,7 +20,7 @@ DEFAULT_POSITIONS = {
     "EIMI": 5.0,    "BRNT": 20.0,  "BTIC": 8.0,
     "XEON": 70.0,   "XDEW": 1.0,
 }
- 
+
 TICKERS = {
     "VWCE": "XETR:VWCE",
     "SXR8": "XETR:SXR8",
@@ -36,14 +36,14 @@ TICKERS = {
 }
 REV_TICKERS = {v: k for k, v in TICKERS.items()}
 VIX_TICKER  = "TVC:VIX"
- 
+
 TARGET_WEIGHTS = {
     "VWCE": 30.0, "SXR8": 10.0, "SXRV": 10.0,
     "IGLD": 10.0, "JGPI": 10.0, "EIMI":  7.0,
     "QDVB":  5.0, "BRNT":  5.0, "BTIC":  3.0,
     "XDEW": 10.0,
 }
- 
+
 TICKER_NAMES = {
     "VWCE": "Vanguard All-World",
     "SXR8": "iShares S&P 500",
@@ -57,13 +57,9 @@ TICKER_NAMES = {
     "XEON": "Xtrackers EUR Overnight",
     "XDEW": "Xtrackers MSCI World ESG",
 }
- 
+
 # ─────────────────────────────────────────
 #  STATE
-#  Чтобы позиции выжили рестарт Railway —
-#  после /pos или /cash скопируй вывод
-#  команды /snapshot и добавь в Railway
-#  Variables как POSITIONS_JSON
 # ─────────────────────────────────────────
 def _load_state() -> Tuple[float, Dict[str, float]]:
     raw = os.environ.get("POSITIONS_JSON", "")
@@ -74,10 +70,10 @@ def _load_state() -> Tuple[float, Dict[str, float]]:
         except Exception:
             pass
     return DEFAULT_CASH, dict(DEFAULT_POSITIONS)
- 
+
 CASH_BALANCE, CURRENT_POSITIONS = _load_state()
 last_update_id = -1
- 
+
 # ─────────────────────────────────────────
 #  TELEGRAM
 # ─────────────────────────────────────────
@@ -94,9 +90,9 @@ def send_telegram(text: str) -> None:
         )
     except Exception as e:
         print(f"Telegram error: {e}")
- 
+
 # ─────────────────────────────────────────
-#  TRADINGVIEW DATA
+#  TRADINGVIEW
 # ─────────────────────────────────────────
 def get_market_data() -> List[dict]:
     symbols = list(TICKERS.values()) + [VIX_TICKER]
@@ -112,7 +108,7 @@ def get_market_data() -> List[dict]:
     except Exception as e:
         print(f"TradingView error: {e}")
         return []
- 
+
 def extract_maps(data: List[dict]):
     prices, changes, rsis = {}, {}, {}
     for item in data:
@@ -124,7 +120,7 @@ def extract_maps(data: List[dict]):
         changes[s] = d[1] or 0.0
         rsis[s]    = d[2]
     return prices, changes, rsis
- 
+
 # ─────────────────────────────────────────
 #  FINNHUB NEWS + ПЕРЕВОД
 # ─────────────────────────────────────────
@@ -142,7 +138,7 @@ def get_market_news(limit: int = 5) -> List[dict]:
     except Exception as e:
         print(f"Finnhub error: {e}")
         return []
- 
+
 def translate_headline(text: str) -> str:
     try:
         r = requests.get(
@@ -154,40 +150,39 @@ def translate_headline(text: str) -> str:
         return result if result else text
     except Exception:
         return text
- 
+
 def get_news_lines(limit: int = 3) -> List[str]:
     items = get_market_news(limit)
     lines = []
     for item in items:
         headline = item.get("headline", "")
         if headline:
-            translated = translate_headline(headline)
-            lines.append(f"• {translated}")
+            lines.append(f"• {translate_headline(headline)}")
     return lines
- 
+
 # ─────────────────────────────────────────
-#  УМНЫЙ ВЫВОД ДНЯ
+#  ВЫВОД ДНЯ
 # ─────────────────────────────────────────
 def generate_conclusion(prices, changes, rsis, vix_val: float, news_lines: List[str]) -> str:
     signals = []
- 
+
     if vix_val > 25:
-        signals.append("🚨 Рынок в панике (VIX>25) — держать кэш")
+        signals.append("🚨 Рынок в панике — держать кэш")
     elif vix_val > 18:
-        signals.append("⚠️ Умеренная тревога (VIX>18) — осторожность")
+        signals.append("⚠️ Умеренная тревога — осторожность")
     else:
-        signals.append("✅ Рынок спокоен (VIX<18) — нормальный режим")
- 
+        signals.append("✅ Рынок спокоен — нормальный режим")
+
     hot = [REV_TICKERS.get(t, t) for t, r in rsis.items()
            if r and r > 70 and t != VIX_TICKER and t in REV_TICKERS]
     if hot:
-        signals.append(f"🔴 Перегреты RSI>70: {', '.join(hot)} — не докупать")
- 
+        signals.append(f"🔴 Перегреты: {', '.join(hot)} — не докупать")
+
     cold = [REV_TICKERS.get(t, t) for t, r in rsis.items()
             if r and r < 30 and t != VIX_TICKER and t in REV_TICKERS]
     if cold:
-        signals.append(f"🟢 Перепроданы RSI<30: {', '.join(cold)} — возможна покупка")
- 
+        signals.append(f"🟢 Перепроданы: {', '.join(cold)} — возможна покупка")
+
     movers = [
         (REV_TICKERS.get(t, t), c)
         for t, c in changes.items()
@@ -197,12 +192,12 @@ def generate_conclusion(prices, changes, rsis, vix_val: float, news_lines: List[
         arrow = "📈" if chg > 0 else "📉"
         direction = "вырос" if chg > 0 else "упал"
         signals.append(f"{arrow} {name} резко {direction}: {chg:+.1f}%")
- 
+
     result = "\n".join(signals)
     if news_lines:
         result += f"\n\n📰 Главное:\n{news_lines[0]}"
     return result
- 
+
 # ─────────────────────────────────────────
 #  УТРЕННЯЯ СВОДКА
 # ─────────────────────────────────────────
@@ -210,33 +205,29 @@ def generate_morning_report() -> str:
     data = get_market_data()
     if not data:
         return "❌ Ошибка получения данных."
- 
+
     prices, changes, rsis = extract_maps(data)
     news_lines = get_news_lines(3)
     vix_val  = prices.get(VIX_TICKER, 0.0)
     vix_icon = "🟢" if vix_val < 15 else "🟡" if vix_val < 25 else "🔴"
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
- 
-    lines = []
-    lines.append("╔══════════════════════════════╗")
-    lines.append("   🌅 УТРЕННЯЯ СВОДКА")
-    lines.append(f"   {now.strftime('%d.%m.%Y')} • {now.strftime('%H:%M')} МСК")
-    lines.append("╚══════════════════════════════╝")
-    lines.append("")
-    lines.append(f"📊 VIX: `{vix_val:.2f}` {vix_icon}")
-    lines.append("")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("📋 ПОЗИЦИИ НА ОТКРЫТИИ")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+    L = []
+    L.append(f"*🌅 УТРЕННЯЯ СВОДКА*")
+    L.append(f"_{now.strftime('%d.%m.%Y')} · {now.strftime('%H:%M')} МСК_")
+    L.append("")
+    L.append(f"📊 VIX: *{vix_val:.2f}* {vix_icon}")
+    L.append("")
+
+    L.append("*📋 Позиции на открытии*")
     for name, tv in TICKERS.items():
         if tv not in prices:
             continue
         p   = prices[tv]
         rsi = rsis.get(tv) or 50.0
         sig = "🔴" if rsi > 70 else "🟢" if rsi < 30 else "⚪️"
-        lines.append(f"{sig} {name:<6} {p:>8.2f}   RSI {rsi:.0f}")
-    lines.append("")
- 
+        L.append(f"{sig} *{name}*  {p:.2f}   RSI {rsi:.0f}")
+
     watch = []
     for name, tv in TICKERS.items():
         if tv not in prices:
@@ -246,28 +237,23 @@ def generate_morning_report() -> str:
             watch.append(f"⚠️ {name} — RSI {rsi:.0f}, возможна коррекция")
         elif rsi < 28:
             watch.append(f"👀 {name} — RSI {rsi:.0f}, следи за отскоком")
- 
+
     if watch:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("🎯 СЛЕДИ СЕГОДНЯ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*🎯 Следи сегодня*")
         for w in watch:
-            lines.append(w)
-        lines.append("")
- 
+            L.append(w)
+
     if news_lines:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📰 НОВОСТИ УТРА")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*📰 Новости утра*")
         for n in news_lines:
-            lines.append(n)
-        lines.append("")
- 
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("Удачного торгового дня! 💼")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    return "\n".join(lines)
- 
+            L.append(n)
+
+    L.append("")
+    L.append("_Удачного торгового дня! 💼_")
+    return "\n".join(L)
+
 # ─────────────────────────────────────────
 #  ВЕЧЕРНЯЯ СВОДКА
 # ─────────────────────────────────────────
@@ -275,19 +261,19 @@ def generate_evening_report() -> str:
     data = get_market_data()
     if not data:
         return "❌ Ошибка получения данных."
- 
+
     prices, changes, rsis = extract_maps(data)
     news_lines = get_news_lines(3)
     vix_val  = prices.get(VIX_TICKER, 0.0)
     vix_icon = "🟢" if vix_val < 15 else "🟡" if vix_val < 25 else "🔴"
- 
+
     total_assets = sum(
         prices.get(TICKERS[n], 0.0) * q
         for n, q in CURRENT_POSITIONS.items() if TICKERS.get(n) in prices
     )
     total    = total_assets + CASH_BALANCE
     cash_pct = (CASH_BALANCE / total * 100) if total > 0 else 0
- 
+
     day_changes = [
         (REV_TICKERS.get(t, t), c)
         for t, c in changes.items() if t != VIX_TICKER and t in REV_TICKERS
@@ -295,48 +281,40 @@ def generate_evening_report() -> str:
     winners = sorted([x for x in day_changes if x[1] > 0], key=lambda x: x[1], reverse=True)[:3]
     losers  = sorted([x for x in day_changes if x[1] < 0], key=lambda x: x[1])[:3]
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
- 
-    lines = []
-    lines.append("╔══════════════════════════════╗")
-    lines.append("   🌙 ВЕЧЕРНЯЯ СВОДКА ПОРТФЕЛЯ")
-    lines.append(f"   {now.strftime('%d.%m.%Y')} • {now.strftime('%H:%M')} МСК")
-    lines.append("╚══════════════════════════════╝")
-    lines.append("")
-    lines.append(f"💼 Капитал:  `{total:,.0f} €`")
-    lines.append(f"💵 Кэш:      `{CASH_BALANCE:,.0f} €` ({cash_pct:.0f}%)")
-    lines.append(f"📊 VIX:      `{vix_val:.2f}` {vix_icon}")
-    lines.append("")
- 
+
+    L = []
+    L.append(f"*🌙 ВЕЧЕРНЯЯ СВОДКА*")
+    L.append(f"_{now.strftime('%d.%m.%Y')} · {now.strftime('%H:%M')} МСК_")
+    L.append("")
+    L.append(f"💼 Капитал: *{total:,.0f} €*")
+    L.append(f"💵 Кэш: *{CASH_BALANCE:,.0f} €* ({cash_pct:.0f}%)")
+    L.append(f"📊 VIX: *{vix_val:.2f}* {vix_icon}")
+
     if winners:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("🏆 ЛИДЕРЫ ДНЯ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*🏆 Лидеры дня*")
         for name, chg in winners:
             tv = TICKERS.get(name)
             p  = prices.get(tv, 0)
             r  = rsis.get(tv)
-            rsi_str = f"RSI {r:.0f}" if r else "RSI n/a"
-            lines.append(f"🟢 {name:<6} {p:>8.2f}  {chg:+.2f}%  {rsi_str}")
-        lines.append("")
- 
+            rsi_str = f"RSI {r:.0f}" if r else ""
+            L.append(f"🟢 *{name}*  {p:.2f}  {chg:+.2f}%  {rsi_str}")
+
     if losers:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("🔻 АУТСАЙДЕРЫ ДНЯ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*🔻 Аутсайдеры дня*")
         for name, chg in losers:
             tv = TICKERS.get(name)
             p  = prices.get(tv, 0)
             r  = rsis.get(tv)
-            rsi_str = f"RSI {r:.0f}" if r else "RSI n/a"
-            lines.append(f"🔴 {name:<6} {p:>8.2f}  {chg:+.2f}%  {rsi_str}")
-        lines.append("")
- 
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("📋 ВСЕ ПОЗИЦИИ")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            rsi_str = f"RSI {r:.0f}" if r else ""
+            L.append(f"🔴 *{name}*  {p:.2f}  {chg:+.2f}%  {rsi_str}")
+
+    L.append("")
+    L.append("*📋 Все позиции*")
     for name, tv in TICKERS.items():
         if tv not in prices:
-            lines.append(f"⚪ {name:<6}  н/д")
+            L.append(f"⚪️ *{name}*  н/д")
             continue
         p        = prices[tv]
         chg      = changes.get(tv, 0.0)
@@ -344,9 +322,8 @@ def generate_evening_report() -> str:
         safe_rsi = rsi or 50.0
         sig      = "🔴" if safe_rsi > 70 else "🟢" if safe_rsi < 30 else "⚪️"
         warn     = "❗" if safe_rsi > 75 or safe_rsi < 25 else ""
-        lines.append(f"{sig} {name:<6} {p:>8.2f}  {chg:>+6.2f}%  RSI {safe_rsi:.0f}{warn}")
-    lines.append("")
- 
+        L.append(f"{sig} *{name}*  {p:.2f}  {chg:+.2f}%  RSI {safe_rsi:.0f}{warn}")
+
     alerts = []
     for name, tv in TICKERS.items():
         if tv not in prices:
@@ -364,43 +341,38 @@ def generate_evening_report() -> str:
         if abs(cur_pct - target_pct) > 5 and target_pct > 0:
             if diff < -p:
                 qty = abs(diff) / p
-                alerts.append(f"⚖️ {name} — перевес {cur_pct:.1f}% (цель {target_pct:.0f}%), продать ~{qty:.0f} шт.")
+                alerts.append(f"⚖️ {name} — перевес {cur_pct:.1f}% → цель {target_pct:.0f}%, продать ~{qty:.0f} шт.")
             elif diff > p:
                 qty = diff / p
-                alerts.append(f"🛒 {name} — недовес {cur_pct:.1f}% (цель {target_pct:.0f}%), докупить ~{qty:.0f} шт.")
- 
+                alerts.append(f"🛒 {name} — недовес {cur_pct:.1f}% → цель {target_pct:.0f}%, докупить ~{qty:.0f} шт.")
+
     if alerts:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("⚠️ СИГНАЛЫ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*⚠️ Сигналы*")
         for a in alerts:
-            lines.append(a)
-        lines.append("")
- 
+            L.append(a)
+
     if news_lines:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📰 НОВОСТИ ДНЯ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*📰 Новости дня*")
         for n in news_lines:
-            lines.append(n)
-        lines.append("")
- 
+            L.append(n)
+
     conclusion = generate_conclusion(prices, changes, rsis, vix_val, news_lines)
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("💡 ВЫВОД ДНЯ")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(conclusion)
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    return "\n".join(lines)
- 
+    L.append("")
+    L.append("*💡 Вывод дня*")
+    L.append(conclusion)
+
+    return "\n".join(L)
+
 # ─────────────────────────────────────────
-#  /rebalance
+#  РЕБАЛАНСИРОВКА
 # ─────────────────────────────────────────
 def generate_rebalance_report() -> str:
     data = get_market_data()
     if not data:
         return "❌ Ошибка получения данных."
- 
+
     prices, _, _ = extract_maps(data)
     total_assets = sum(
         prices.get(TICKERS[n], 0.0) * q
@@ -408,17 +380,14 @@ def generate_rebalance_report() -> str:
     )
     total = total_assets + CASH_BALANCE
     now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
- 
-    lines = []
-    lines.append("╔══════════════════════════════╗")
-    lines.append("   ⚖️ ПЛАН РЕБАЛАНСИРОВКИ")
-    lines.append(f"   {now.strftime('%d.%m.%Y')} • {now.strftime('%H:%M')} МСК")
-    lines.append("╚══════════════════════════════╝")
-    lines.append("")
-    lines.append(f"💼 Капитал: `{total:,.0f} €`")
-    lines.append(f"💵 Кэш:     `{CASH_BALANCE:,.0f} €`")
-    lines.append("")
- 
+
+    L = []
+    L.append("*⚖️ ПЛАН РЕБАЛАНСИРОВКИ*")
+    L.append(f"_{now.strftime('%d.%m.%Y')} · {now.strftime('%H:%M')} МСК_")
+    L.append("")
+    L.append(f"💼 Капитал: *{total:,.0f} €*")
+    L.append(f"💵 Кэш: *{CASH_BALANCE:,.0f} €*")
+
     buy_list, sell_list = [], []
     for name, target_pct in TARGET_WEIGHTS.items():
         tv = TICKERS.get(name)
@@ -430,36 +399,32 @@ def generate_rebalance_report() -> str:
         cur_pct  = (cur_val / total * 100) if total > 0 else 0
         diff     = (total * target_pct / 100) - cur_val
         diff_qty = diff / p if p > 0 else 0
- 
+
         if diff_qty > 0.5:
-            buy_list.append(f"{name:<6} 🛒 +{diff_qty:.1f} шт.  (+{diff:,.0f} €)  [{cur_pct:.1f}%→{target_pct:.0f}%]")
+            buy_list.append(f"🛒 *{name}*  +{diff_qty:.1f} шт.  (+{diff:,.0f} €)  {cur_pct:.1f}%→{target_pct:.0f}%")
         elif diff_qty < -0.5:
-            sell_list.append(f"{name:<6} ⚖️ -{abs(diff_qty):.1f} шт.  ({diff:,.0f} €)  [{cur_pct:.1f}%→{target_pct:.0f}%]")
- 
+            sell_list.append(f"⚖️ *{name}*  -{abs(diff_qty):.1f} шт.  ({diff:,.0f} €)  {cur_pct:.1f}%→{target_pct:.0f}%")
+
     if sell_list:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📤 ПРОДАТЬ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*📤 Продать*")
         for s in sell_list:
-            lines.append(s)
-        lines.append("")
- 
+            L.append(s)
+
     if buy_list:
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("📥 КУПИТЬ")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("*📥 Купить*")
         for b in buy_list:
-            lines.append(b)
-        lines.append("")
- 
+            L.append(b)
+
     if not sell_list and not buy_list:
-        lines.append("✅ Портфель сбалансирован!")
- 
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("⚠️ Расчёт, не финансовый совет.")
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    return "\n".join(lines)
- 
+        L.append("")
+        L.append("✅ Портфель сбалансирован!")
+
+    L.append("")
+    L.append("_⚠️ Расчёт, не финансовый совет._")
+    return "\n".join(L)
+
 # ─────────────────────────────────────────
 #  ЧАСОВЫЕ АЛЕРТЫ
 # ─────────────────────────────────────────
@@ -470,11 +435,11 @@ def check_alerts() -> None:
     prices, changes, rsis = extract_maps(data)
     vix_val = prices.get(VIX_TICKER, 0.0)
     vix_s   = "🟢" if vix_val < 15 else "🟡" if vix_val < 25 else "🔴"
- 
+
     alerts = []
     if vix_val > 25:
         alerts.append(f"🚨 VIX {vix_val:.1f} — ПАНИКА на рынке!")
- 
+
     for symbol in prices:
         if symbol == VIX_TICKER:
             continue
@@ -486,16 +451,18 @@ def check_alerts() -> None:
         elif rsi and rsi < 25:
             alerts.append(f"🔥 {name} перепродан (RSI: {rsi:.0f})")
         if abs(chg) > 4.0:
-            alerts.append(f"📊 Резкое движение {name}: {chg:+.2f}%")
- 
+            alerts.append(f"📊 {name}: резкое движение {chg:+.2f}%")
+
     if not alerts:
         return
- 
-    msg  = "🔔 *ЧАСОВОЙ АЛЕРТ*\n"
-    msg += f"📊 VIX: `{vix_val:.2f}` {vix_s}\n\n"
-    msg += "\n".join(alerts)
-    send_telegram(msg)
- 
+
+    L = []
+    L.append("*🔔 ЧАСОВОЙ АЛЕРТ*")
+    L.append(f"📊 VIX: *{vix_val:.2f}* {vix_s}")
+    L.append("")
+    L.extend(alerts)
+    send_telegram("\n".join(L))
+
 # ─────────────────────────────────────────
 #  DEBUG
 # ─────────────────────────────────────────
@@ -509,32 +476,30 @@ def _debug(symbol: str) -> str:
     if not tv:
         return f"⚠️ Неизвестный тикер `{sym}`.\nДоступно: {', '.join(TICKERS)}, VIX"
     if tv not in prices:
-        return f"⚠️ Нет рыночных данных для `{sym}`."
+        return f"⚠️ Нет данных для `{sym}`."
     p   = prices[tv]
     chg = changes.get(tv, 0.0)
     rsi = rsis.get(tv)
     full_name = TICKER_NAMES.get(sym, "")
-    lines = [
-        f"🐞 *DEBUG {sym}*",
-        f"_{full_name}_" if full_name else "",
-        f"Символ TV: `{tv}`",
-        f"Цена:      `{p:.4f} €`",
-        f"Изм/день:  `{chg:+.2f}%`",
-        f"RSI:       `{rsi:.2f}`" if rsi else "RSI: n/a",
-    ]
+    L = [f"*🐞 DEBUG {sym}*"]
+    if full_name:
+        L.append(f"_{full_name}_")
+    L.append(f"Цена: *{p:.4f} €*")
+    L.append(f"Изм/день: *{chg:+.2f}%*")
+    L.append(f"RSI: *{rsi:.2f}*" if rsi else "RSI: n/a")
     if sym != "VIX":
         qty    = CURRENT_POSITIONS.get(sym, 0.0)
         target = TARGET_WEIGHTS.get(sym, 0.0)
-        lines.append(f"Позиция:   `{qty}` шт. (~`{qty*p:,.2f} €`)")
-        lines.append(f"Цель порт: `{target:.0f}%`")
-    return "\n".join(l for l in lines if l)
- 
+        L.append(f"Позиция: *{qty}* шт. (~*{qty*p:,.2f} €*)")
+        L.append(f"Цель: *{target:.0f}%*")
+    return "\n".join(L)
+
 # ─────────────────────────────────────────
-#  КОМАНДЫ TELEGRAM
+#  КОМАНДЫ
 # ─────────────────────────────────────────
 def handle_commands() -> None:
     global last_update_id, CASH_BALANCE
- 
+
     if not BOT_TOKEN:
         return
     try:
@@ -547,64 +512,61 @@ def handle_commands() -> None:
     except Exception as e:
         print(f"getUpdates error: {e}")
         return
- 
+
     for update in resp.json().get("result", []):
         last_update_id = update.get("update_id", last_update_id)
         msg  = update.get("message", {})
- 
+
         if str(msg.get("chat", {}).get("id", "")) != str(CHAT_ID):
             continue
- 
+
         text = (msg.get("text") or "").strip()
- 
+
         if text == "/help":
             send_telegram(
-                "📖 *Доступные команды:*\n\n"
-                "/report — вечерняя сводка сейчас\n"
-                "/morning — утренняя сводка сейчас\n"
+                "*📖 Команды бота*\n\n"
+                "/report — вечерняя сводка\n"
+                "/morning — утренняя сводка\n"
                 "/rebalance — план ребалансировки\n"
-                "/news — свежие новости рынка\n"
+                "/news — новости рынка\n"
                 "/alerts — проверить алерты\n"
-                "/snapshot — текущее состояние для сохранения\n"
+                "/snapshot — сохранить позиции\n"
                 "/pos TICKER N — обновить позицию\n"
-                "  _пример: /pos VWCE 10_\n"
                 "/cash СУММА — обновить кэш\n"
-                "  _пример: /cash 50000_\n"
                 "/debug TICKER — детали по тикеру\n"
                 "/help — эта справка"
             )
- 
+
         elif text == "/report":
             send_telegram("⏳ Собираю данные...")
             send_telegram(generate_evening_report())
- 
+
         elif text == "/morning":
             send_telegram("⏳ Готовлю утреннюю сводку...")
             send_telegram(generate_morning_report())
- 
+
         elif text == "/rebalance":
             send_telegram("⏳ Считаю ребалансировку...")
             send_telegram(generate_rebalance_report())
- 
+
         elif text == "/news":
             send_telegram("⏳ Загружаю новости...")
             lines = get_news_lines(5)
             if lines:
-                send_telegram("📰 *НОВОСТИ РЫНКА*\n\n" + "\n\n".join(lines))
+                send_telegram("*📰 Новости рынка*\n\n" + "\n\n".join(lines))
             else:
                 send_telegram("⚠️ Новости недоступны. Проверь FINNHUB\\_TOKEN.")
- 
+
         elif text == "/alerts":
             check_alerts()
- 
+
         elif text == "/snapshot":
-            # Выводит JSON для сохранения в Railway Variables
             snapshot = json.dumps({"cash": CASH_BALANCE, "positions": CURRENT_POSITIONS})
             send_telegram(
-                "💾 *Сохрани это в Railway Variables как POSITIONS\\_JSON:*\n\n"
+                "*💾 Сохрани в Railway Variables как POSITIONS\\_JSON:*\n\n"
                 f"`{snapshot}`"
             )
- 
+
         elif text.startswith("/cash"):
             parts = text.split()
             if len(parts) != 2:
@@ -612,10 +574,10 @@ def handle_commands() -> None:
                 continue
             try:
                 CASH_BALANCE = float(parts[1])
-                send_telegram(f"✅ Кэш обновлён: `{CASH_BALANCE:,.0f} €`\nНапиши /snapshot чтобы сохранить.")
+                send_telegram(f"✅ Кэш: *{CASH_BALANCE:,.0f} €*\nНапиши /snapshot чтобы сохранить.")
             except ValueError:
                 send_telegram("⚠️ Сумма должна быть числом.")
- 
+
         elif text.startswith("/pos"):
             parts = text.split()
             if len(parts) != 3:
@@ -625,59 +587,59 @@ def handle_commands() -> None:
             try:
                 qty = float(parts[2])
                 CURRENT_POSITIONS[symbol] = qty
-                send_telegram(f"✅ {symbol}: `{qty}` шт. обновлено\nНапиши /snapshot чтобы сохранить.")
+                send_telegram(f"✅ {symbol}: *{qty}* шт.\nНапиши /snapshot чтобы сохранить.")
             except ValueError:
                 send_telegram("⚠️ Количество должно быть числом.")
- 
+
         elif text.startswith("/debug"):
             parts = text.split()
             if len(parts) != 2:
                 send_telegram("⚠️ Формат: /debug VWCE")
                 continue
             send_telegram(_debug(parts[1]))
- 
+
         else:
             if text.startswith("/"):
                 send_telegram("❓ Неизвестная команда. Напиши /help")
- 
+
 # ─────────────────────────────────────────
 #  MAIN LOOP
 # ─────────────────────────────────────────
 if __name__ == "__main__":
     send_telegram(
-        "🤖 *Бот запущен*\n\n"
+        "*🤖 Бот запущен*\n\n"
         "🌅 Утренняя сводка: 09:00 МСК\n"
         "🌙 Вечерняя сводка: 21:00 МСК\n"
-        "🔔 Часовые алерты: 10:00–20:59 МСК\n\n"
+        "🔔 Алерты: 10:00–20:59 МСК\n\n"
         "Напиши /help для списка команд."
     )
- 
+
     last_hour    = -1
     morning_sent = False
     evening_sent = False
- 
+
     while True:
         handle_commands()
- 
+
         now  = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
         hour = now.hour
- 
+
         if hour == 9 and not morning_sent:
             send_telegram("⏳ Готовлю утреннюю сводку...")
             send_telegram(generate_morning_report())
             morning_sent = True
         elif hour != 9:
             morning_sent = False
- 
+
         if hour == 21 and not evening_sent:
             send_telegram("⏳ Готовлю вечернюю сводку...")
             send_telegram(generate_evening_report())
             evening_sent = True
         elif hour != 21:
             evening_sent = False
- 
+
         if hour != last_hour and 10 <= hour <= 20:
             check_alerts()
             last_hour = hour
- 
+
         time.sleep(POLL_INTERVAL)
