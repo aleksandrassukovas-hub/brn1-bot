@@ -29,7 +29,7 @@ TICKERS = {
     "JGPI": "XETR:JGPI",
     "QDVB": "XETR:QDVB",
     "EIMI": "LSE:EIMI",
-    "BRNT": "BVME:BRNT",
+    "BRNT": "ICEEUR:BRN1!",
     "BTIC": "XETR:BTIC",
     "XEON": "XETR:XEON",
     "XDEW": "XETR:XDEW",
