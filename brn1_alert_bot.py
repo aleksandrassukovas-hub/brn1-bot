@@ -13,6 +13,13 @@ CHAT_ID       = os.environ.get("CHAT_ID", "")
 FINNHUB_TOKEN = os.environ.get("FINNHUB_TOKEN", "")
 POLL_INTERVAL = 5
 
+# ─── РАСПИСАНИЕ (время МСК, UTC+3) ───
+WORK_DAYS       = {0, 1, 2, 3, 4}   # Пн–Пт (0 = понедельник, 6 = воскресенье)
+WORK_START_HOUR = 9                 # начало рабочего дня
+WORK_END_HOUR   = 18                # конец рабочего дня
+MORNING_HOUR    = 9                 # час утренней сводки
+EVENING_HOUR    = 18                # час вечерней сводки
+
 DEFAULT_CASH = 100_000.0
 DEFAULT_POSITIONS = {
     "VWCE": 4.0,    "SXR8": 1.0,   "SXRV": 0.2,
@@ -57,6 +64,15 @@ TICKER_NAMES = {
     "XEON": "Xtrackers EUR Overnight",
     "XDEW": "Xtrackers MSCI World ESG",
 }
+
+# ─────────────────────────────────────────
+#  ВРЕМЯ И РАСПИСАНИЕ
+# ─────────────────────────────────────────
+def now_msk() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+
+def is_working_day(now: datetime.datetime) -> bool:
+    return now.weekday() in WORK_DAYS
 
 # ─────────────────────────────────────────
 #  STATE
@@ -210,7 +226,7 @@ def generate_morning_report() -> str:
     news_lines = get_news_lines(3)
     vix_val  = prices.get(VIX_TICKER, 0.0)
     vix_icon = "🟢" if vix_val < 15 else "🟡" if vix_val < 25 else "🔴"
-    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    now = now_msk()
 
     L = []
     L.append(f"*🌅 УТРЕННЯЯ СВОДКА*")
@@ -280,7 +296,7 @@ def generate_evening_report() -> str:
     ]
     winners = sorted([x for x in day_changes if x[1] > 0], key=lambda x: x[1], reverse=True)[:3]
     losers  = sorted([x for x in day_changes if x[1] < 0], key=lambda x: x[1])[:3]
-    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    now = now_msk()
 
     L = []
     L.append(f"*🌙 ВЕЧЕРНЯЯ СВОДКА*")
@@ -379,7 +395,7 @@ def generate_rebalance_report() -> str:
         for n, q in CURRENT_POSITIONS.items() if TICKERS.get(n) in prices
     )
     total = total_assets + CASH_BALANCE
-    now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+    now = now_msk()
 
     L = []
     L.append("*⚖️ ПЛАН РЕБАЛАНСИРОВКИ*")
@@ -608,9 +624,11 @@ def handle_commands() -> None:
 if __name__ == "__main__":
     send_telegram(
         "*🤖 Бот запущен*\n\n"
+        "🗓 Авто-режим: только по будням (Пн–Пт)\n"
         "🌅 Утренняя сводка: 09:00 МСК\n"
-        "🌙 Вечерняя сводка: 21:00 МСК\n"
-        "🔔 Алерты: 10:00–20:59 МСК\n\n"
+        "🌙 Вечерняя сводка: 18:00 МСК\n"
+        "🔔 Алерты: 10:00–17:59 МСК\n\n"
+        "Команды (/report, /morning и т.д.) работают всегда.\n"
         "Напиши /help для списка команд."
     )
 
@@ -619,27 +637,35 @@ if __name__ == "__main__":
     evening_sent = False
 
     while True:
+        # Команды обрабатываются всегда — независимо от дня и часа
         handle_commands()
 
-        now  = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
+        now  = now_msk()
         hour = now.hour
 
-        if hour == 9 and not morning_sent:
-            send_telegram("⏳ Готовлю утреннюю сводку...")
-            send_telegram(generate_morning_report())
-            morning_sent = True
-        elif hour != 9:
+        # Автоматические сводки и алерты — только в рабочие дни
+        if is_working_day(now):
+            if hour == MORNING_HOUR and not morning_sent:
+                send_telegram("⏳ Готовлю утреннюю сводку...")
+                send_telegram(generate_morning_report())
+                morning_sent = True
+            elif hour != MORNING_HOUR:
+                morning_sent = False
+
+            if hour == EVENING_HOUR and not evening_sent:
+                send_telegram("⏳ Готовлю вечернюю сводку...")
+                send_telegram(generate_evening_report())
+                evening_sent = True
+            elif hour != EVENING_HOUR:
+                evening_sent = False
+
+            # Часовые алерты строго между сводками: 10:00–17:59 МСК
+            if hour != last_hour and WORK_START_HOUR < hour < WORK_END_HOUR:
+                check_alerts()
+                last_hour = hour
+        else:
+            # Выходной — сбрасываем флаги, чтобы в понедельник всё сработало штатно
             morning_sent = False
-
-        if hour == 21 and not evening_sent:
-            send_telegram("⏳ Готовлю вечернюю сводку...")
-            send_telegram(generate_evening_report())
-            evening_sent = True
-        elif hour != 21:
             evening_sent = False
-
-        if hour != last_hour and 10 <= hour <= 20:
-            check_alerts()
-            last_hour = hour
 
         time.sleep(POLL_INTERVAL)
