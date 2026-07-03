@@ -1,4 +1,4 @@
-def format_ticker_details(sym, full_name, p, chg, rsi):
+уdef format_ticker_details(sym, full_name, p, chg, rsi):
     L = []
 
     if full_name:
