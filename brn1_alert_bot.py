@@ -1,21 +1,26 @@
+import requests
+import json
+import time
+
+def send_telegram(text: str) -> None:
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": CHAT_ID,
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"send_telegram error: {e}")
+
+
 def format_ticker_details(sym, full_name, p, chg, rsi):
     L = []
-
-    if full_name:
-        L.append(f"_{full_name}_")
-
-    L.append(f"Цена: *{p:.4f} €*")
-    L.append(f"Изм/день: *{chg:+.2f}%*")
-    L.append(f"RSI: *{rsi:.2f}*" if rsi is not None else "RSI: n/a")
-
-    if sym != "VIX":
-        qty = CURRENT_POSITIONS.get(sym, 0.0)
-        target = TARGET_WEIGHTS.get(sym, 0.0)
-        L.append(f"Позиция: *{qty}* шт. (~*{qty * p:,.2f} €*)")
-        L.append(f"Цель: *{target:.0f}%*")
-
-    return "\n".join(L)
-
 # ─────────────────────────────────────────
 #  КОМАНДЫ
 # ─────────────────────────────────────────
